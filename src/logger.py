@@ -30,7 +30,7 @@ class Logger(metaclass=Singleton):
 
     def setFileLog(self) -> None:
         self._file = True
-        self._agent_file.file = open('./log_tmp', 'w')
+        self._agent_file.file = open('./log.tmp', 'w')
 
     def isSetFileLOg(self) -> bool:
         return self._file
