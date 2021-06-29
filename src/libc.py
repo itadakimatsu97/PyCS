@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import FrozenSet, Tuple
 from functools import lru_cache
-from exceptions import LibCNotFound, ParsingFailed
+from .exceptions import LibCNotFound, ParsingFailed
+from .logger import LLogger
 import lief
 import os
 
@@ -22,6 +23,7 @@ class CheckLibC():
     END_MARKER = '_chk'
 
     def __init__(self) -> None:
+        self.logger = LLogger().getLLogger
         self.libCPath = self.findLibC()
         if not self.libCPath:
             raise LibCNotFound()
@@ -38,13 +40,17 @@ class CheckLibC():
         """
         target = None
         for p in cls.PATH_POSSIBLE:
+            cls.logger.debug('Scan path: %s', p)
             posixPath = Path(p)
             if posixPath.exists():
                 if posixPath.is_symlink():
                     target = Path(os.readlink(posixPath))
+                    cls.logger.debug('Found libc: <%s> --> <%s>', posixPath, target)
                     # break
                 if lief.is_elf(str(posixPath)):
+                    cls.logger.debug('Found libc: <%s> break!',posixPath)
                     target = posixPath
+                    break
         return target
 
     @lru_cache
@@ -52,6 +58,7 @@ class CheckLibC():
         """
         '__stpcpy_chk'
         """
+        self.logger.debug('Geting fortified symbols')
         return frozenset({func.name for func in self.libCParse.symbols if func.name.endswith(self.END_MARKER)})
 
     @lru_cache
@@ -59,4 +66,5 @@ class CheckLibC():
         """
         'stpcpy'
         """
+        self.logger.debug('Geting fortifable symbols')
         return frozenset({strr[len(self.STAR_MARKER):-len(self.END_MARKER)] for strr in self.getFortifiedSymbols()})

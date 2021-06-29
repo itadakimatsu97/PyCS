@@ -1,10 +1,5 @@
-#!/usr/bin/env python3
-from typing import Iterator, List, Optional, Union
+from typing import Iterator, List
 from pathlib import Path
-import subprocess
-import struct
-import lief
-import re
 import os
 
 def getListOfFiles(listOfFilePath: List[Path], recursive: bool = False) -> Iterator[Path]:

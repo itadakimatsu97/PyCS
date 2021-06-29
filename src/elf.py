@@ -1,19 +1,20 @@
+"""
+Project     : PyCS
+Owner       : tuan2.le(Le Van Tuan)
+Email       : itadakimatsu97@gmail.com
+Description : Reworks base on Checksec.py and fix its bug-cannot check parital relro
+"""
+
 from abc import ABC
-import logging
 from collections import namedtuple
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import FrozenSet, List, Optional, TYPE_CHECKING, Union
-
-
+from typing import FrozenSet, List, Optional
 import lief
 
-from libc import CheckLibC
-from exceptions import ParsingFailed
-
-if TYPE_CHECKING:
-    from elf import ELFChecksecData
+from .libc import CheckLibC
+from .exceptions import ParsingFailed
 
 ELFChecksecData = namedtuple(
     "ELFChecksecData",
@@ -32,6 +33,20 @@ ELFChecksecData = namedtuple(
     ],
 )
 
+__LIBC ={}
+
+def getLibC():
+    global __LIBC
+    try:
+        __LIBC['libc']
+    except KeyError:
+        try:
+            libc = CheckLibC()
+        except:
+            __LIBC["libc"] = None
+        else:
+            __LIBC["libc"] = libc
+    return __LIBC["libc"]
 
 class RelroType(Enum):
     No = 1
@@ -61,14 +76,15 @@ class BinarySecurity(ABC):
 
 
 class ELFSecurity(BinarySecurity):
-    def __init__(self, elf_path: Path, libc: CheckLibC = None):
+    def __init__(self, elf_path: Path):
         super().__init__(elf_path)
-        self._libc = False
-        if not libc:
+        libc = getLibC()
+        if libc:
             self._libc = True
             self.cmpFortified = libc.listOfFortified
             self.cmpFortifable = libc.listOfFortifable
-
+        else:
+            self._libc = False
     @property
     @lru_cache()
     def set_dyn_syms(self) -> FrozenSet[str]:

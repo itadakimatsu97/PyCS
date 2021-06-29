@@ -52,7 +52,7 @@ class RichLogger(metaclass=Singleton):
 
 
 class LLogger(metaclass=Singleton):
-    formatStr = '[%(asctime)s.%(msecs)0.3d %(name)-4s %(levelname)-6s %(filename)-10s %(funcName)-16s:%(lineno)-3s]  %(message)s'
+    formatStr = '[%(asctime)s.%(msecs)0.3d %(name)-4s %(levelname)-6s %(filename)-10s %(funcName)-20s:%(lineno)-3s]  %(message)s'
     def __init__(self) -> None:
         self.__logger = logging.getLogger('dcv')
         self.__config()
