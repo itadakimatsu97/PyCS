@@ -1,10 +1,13 @@
 """
-Project :   PyChecksec
+Project :   PyCS
 Owner   :   tuan2.le(Le Van Tuan)
 Email   :   itadakimatsu97@gmail.com
+Descript:   Use Rich.Console framework/ Logging 
 """
 from rich.console import Console
 import sys
+import logging
+from logging import StreamHandler, Formatter, FileHandler
 
 
 class Singleton(type):
@@ -17,7 +20,7 @@ class Singleton(type):
         return cls._instances[cls]
 
 
-class Logger(metaclass=Singleton):
+class RichLogger(metaclass=Singleton):
     def __init__(self, debug: bool = False) -> None:
         self._agent_file = Console()
         self._agent = Console()
@@ -46,3 +49,26 @@ class Logger(metaclass=Singleton):
         if self._file:
             self._agent_file.log('[INFO]', content)
         self._agent.log('[INFO]', content)
+
+
+class LLogger(metaclass=Singleton):
+    formatStr = '[%(asctime)s.%(msecs)0.3d %(name)-4s %(levelname)-6s %(filename)-10s %(funcName)-16s:%(lineno)-3s]  %(message)s'
+    def __init__(self) -> None:
+        self.__logger = logging.getLogger('dcv')
+        self.__config()
+
+    def __config(self) -> None:
+        fhandler = FileHandler(filename='log.tmp', mode='w')
+        fhandler.setFormatter(Formatter(fmt=self.formatStr))
+        self.__logger.addHandler(fhandler)
+
+        self.__logger.setLevel(logging.INFO)
+
+    def addStdout(self)->None:
+        shandler = StreamHandler(stream=sys.stdout)
+        shandler.setFormatter(Formatter(fmt=self.formatStr))
+        self.__logger.addHandler(shandler)
+
+    @property
+    def getLLogger(self) -> logging.Logger:
+        return self.__logger
