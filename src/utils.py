@@ -2,6 +2,7 @@ from typing import Iterator, List
 from pathlib import Path
 import os
 
+
 def getListOfFiles(listOfFilePath: List[Path], recursive: bool = False) -> Iterator[Path]:
     for path in listOfFilePath:
         # print(path.is_dir())

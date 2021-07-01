@@ -4,10 +4,14 @@ Owner   :   tuan2.le(Le Van Tuan)
 Email   :   itadakimatsu97@gmail.com
 Descript:   Use Rich.Console framework/ Logging 
 """
+from enum import Enum
+from threading import local
+from typing import Any
 from rich.console import Console
 import sys
 import logging
 from logging import StreamHandler, Formatter, FileHandler
+from rich.logging import RichHandler
 
 
 class Singleton(type):
@@ -52,22 +56,32 @@ class RichLogger(metaclass=Singleton):
 
 
 class LLogger(metaclass=Singleton):
-    formatStr = '[%(asctime)s.%(msecs)0.3d %(name)-4s %(levelname)-6s %(filename)-10s %(funcName)-20s:%(lineno)-3s]  %(message)s'
+    formatStr = '[%(asctime)s] %(name)-4s %(levelname)-6s %(filename)-20s:%(lineno)-4s %(processName)-15s] %(message)s'
+
     def __init__(self) -> None:
         self.__logger = logging.getLogger('dcv')
+
+        #This will prevent logging from being send to the upper logger
+        #that includes the console logging.
+        self.__logger.propagate = False
         self.__config()
 
     def __config(self) -> None:
         fhandler = FileHandler(filename='log.tmp', mode='w')
         fhandler.setFormatter(Formatter(fmt=self.formatStr))
+        fhandler.setLevel(logging.DEBUG)
         self.__logger.addHandler(fhandler)
+        self.__logger.setLevel(logging.DEBUG)
 
-        self.__logger.setLevel(logging.INFO)
-
-    def addStdout(self)->None:
-        shandler = StreamHandler(stream=sys.stdout)
-        shandler.setFormatter(Formatter(fmt=self.formatStr))
-        self.__logger.addHandler(shandler)
+    def addRichHandler(self, level: Any = logging.INFO) -> None:
+        richHandler = RichHandler(
+            markup=False,
+            omit_repeated_times=False,
+            log_time_format="%Y-%m-%d %H:%M:%S.%f",
+            rich_tracebacks=True,
+        )
+        richHandler.setLevel(level)
+        self.__logger.addHandler(richHandler)
 
     @property
     def getLLogger(self) -> logging.Logger:

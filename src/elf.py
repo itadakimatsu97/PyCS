@@ -33,7 +33,8 @@ ELFChecksecData = namedtuple(
     ],
 )
 
-__LIBC ={}
+__LIBC = {}
+
 
 def getLibC():
     global __LIBC
@@ -47,6 +48,7 @@ def getLibC():
         else:
             __LIBC["libc"] = libc
     return __LIBC["libc"]
+
 
 class RelroType(Enum):
     No = 1
@@ -85,6 +87,7 @@ class ELFSecurity(BinarySecurity):
             self.cmpFortifable = libc.listOfFortifable
         else:
             self._libc = False
+
     @property
     @lru_cache()
     def set_dyn_syms(self) -> FrozenSet[str]:
@@ -107,7 +110,6 @@ class ELFSecurity(BinarySecurity):
 
         except lief.not_found:
             return RelroType.Partial
-
 
     @property
     def has_canary(self) -> bool:

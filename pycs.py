@@ -1,50 +1,57 @@
 #!/usr/bin/env python3
 # Declare  __doc__ attribute i used for parsing options:
 """
-Usage: checksec_DCV.py [options] <file/directory>...
+Usage: checksec_DCV.py [options] [console] <file/directory>...
 
 Options:
-    -d --debug                          Enable log level =Debug
-    -c --console                        Enable printing log on console terminal
-    -r --recursive                      Enable recursive scaning
-    -w WORKERS --workers=WORKERS        Number of worker for multithreading
-    -h --help                           Help
+    -r --recursive                      Enable recursive scaning, default is not-recursive
+    -w WORKERS --workers=WORKERS        Number of worker for multithreading, default = 2*numOfProcessor
     -o FILE --output=FILE               Output file path
+    -h --help                           Help
+
+# Program always export full log into ./log.tmp
+Console:
+    -c --console                        Enable printing log on console terminal, default level =INFO
+    -d --debug                          Set console log level =DEBUG
 """
 
 
 # http://docopt.org/
-import pathlib
 from docopt import docopt
 import sys
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-import logging
+
+import rich
 from src.logger import LLogger
 import lief
 from src.utils import getListOfFiles
 from src.elf import ELFSecurity, ELFChecksecData, getLibC
-from src.libc import CheckLibC
 from src.exceptions import *
+from src.dataCollectors.RichTable import *
+from rich.console import Console
 import timeit
-from datetime import datetime
 
-now = datetime.now()
-now = now.strftime('%Y-%m-%d %H-%M-%S')
-
-dir_path = os.path.dirname(os.path.realpath(__file__))
 
 def initializer():
     getLibC()
     pass
 
+
 def task(p: Path) -> ELFChecksecData:
-        logger.debug("Worker %s: checking %s", os.getpid(), p)
-        res = ELFSecurity(p)
-        return res.checksec_state
+    logging.getLogger('dcv').debug(F"Checking: {p}")
+    res = ELFSecurity(p)
+    return res.checksec_state
+
 
 def program(args: dict) -> None:
+    richConsole = Console()
+    richConsole.rule(characters='.')
+    richConsole.rule('[bold red]Program start!', characters='.')
+    richConsole.rule('[bold red]Setting up', characters='.')
+    start = timeit.default_timer()
+
     pathList = [Path(entry) for entry in args['<file/directory>']]
     workers = int(args['--workers']) if args['--workers'] else os.cpu_count()
     recursive = args['--recursive']
@@ -52,82 +59,86 @@ def program(args: dict) -> None:
     logger.info('Input: %d paths to dir/file.', len(pathList))
     logger.info('Input: %d workers.', workers)
     logger.info('Input: recursive mode = %s', 'True' if recursive else 'False')
+    lief.logging.disable()
 
-    # Scan libc
-    # libc = None
-    # try:
-    #     libc = CheckLibC()
-    #     logger.info('LibC: %d fortified symbols', len(libc.listOfFortified))
-    #     logger.info('LibC: %d fortifable symbols', len(libc.listOfFortifable))
-    #     logger.info('Get LibC successfully!')
-    # except LibCNotFound as err:
-    #     logger.info('Error: %s', err)
-    # except ParsingFailed as err:
-    #     logger.info('Error: %s', err)
-
-
-    start = timeit.default_timer()
-    # Scan all files in pathList
-    try:
-        count = sum(1 for i in getListOfFiles(pathList, recursive))
-        logger.info('Get list of files: %d files', count)
-    except:
-        # listOfFiles = None
-        logger.info('Get list of files failed')
+    libc_detected = False
+    libc = getLibC()
+    if libc:
+        libc_detected = True
+    else:
+        logger.debug("Could not locate libc. Skipping fortify tests for ELF.")
 
     # Thread pool
-    # try:
-    with ProcessPoolExecutor(max_workers=workers, initializer=getLibC) as pool:
-        futures_in_pool = {
-            pool.submit(
-                task, entry
-            ): entry for entry in getListOfFiles(pathList, recursive) if lief.is_elf(str(entry))
-        }
-        for future in as_completed(futures_in_pool):
-            p = futures_in_pool[future]
-            logger.debug(F'{p}:{future.result()}')
-            # logger.info(F'{p} : {res.checksec_state}')
-            # res = future.result()
-            # try:
-            #     res = future.result()
-            # except:
-            #     logger.info("error")
-            # else:
-            #     logger.info(F'{p} : {res.checksec_state}')
-    # manual:
-    # for entry in getListOfFiles(pathList, recursive):
-    #     if lief.is_elf(str(entry)):
-    #         ress = task(entry)
-    #         logger.debug(F'{entry}:{ress}')
+    output_cls = RichTable
+    with output_cls(is_libc_exists=libc_detected) as check_output:
+        try:
+            try:
+                count = sum(1 for i in getListOfFiles(
+                    pathList, recursive) if lief.is_elf(str(i)))
+            except KeyboardInterrupt:
+                logger.info('Enumerating is stopped by keyboard interrupt.')
+            else:
+                check_output.enumerateTask(total=count, func=None)
 
-    stop = timeit.default_timer()
+            with ProcessPoolExecutor(max_workers=workers, initializer=getLibC) as pool:
+                try:
+                    check_output.startJob()
 
-    logger.info(F'RunTime= {stop-start}')
-    # except:
-    #     pass
+                    futures_in_pool = {
+                        pool.submit(
+                            task, entry
+                        ): entry for entry in getListOfFiles(pathList, recursive) if lief.is_elf(str(entry))
+                    }
+                    global cnt
+                    cnt = 1
+                    for future in as_completed(futures_in_pool):
+                        filepath = futures_in_pool[future]
+                        try:
+                            data = future.result()
+                        except:
+                            logger.debug(F'Future error: {filepath}')
+                        else:
+                            check_output.appendingNewRecord(filepath, data)
+                        finally:
+                            check_output.postAppending()
+                            logger.debug(
+                                F"Checked[{cnt:-8}/{count}] {filepath}")
+                            cnt += 1
+                            pass
+                except KeyboardInterrupt:
+                    logger.info('Checking is stopped by keyboard interrupt.')
+                    check_output.__exit__(None, None, None)
+                    logging.info("Shutdown Process Pool ...")
+                    pool.shutdown(wait=True)
+
+        except KeyboardInterrupt:
+            pass
+        else:
+            check_output.finishJob()
+
+    duration = timeit.default_timer() - start
+    richConsole.rule(
+        F'[bold red]Program end! RunTime= {duration.__round__(4)} (seconds)', characters='.')
 
 
 if __name__ == "__main__":
     args = docopt(__doc__)
 
-    # Setup logger agent:
     debug = args['--debug']
     console = args['--console']
     logger = LLogger().getLLogger
-    if debug:
-        logger.setLevel(logging.DEBUG)
-
     if console:
-        LLogger().addStdout()
+        if debug:
+            LLogger().addRichHandler(logging.DEBUG)
+        else:
+            LLogger().addRichHandler()
 
-    # try:
-    #     logger.info('------------START------------')
-    program(args)
-    # except KeyboardInterrupt:
-    #     logger.info('Interrupted')
-    # finally:
-    #     logger.info('------------END-------------')
-    #     try:
-    #         sys.exit(0)
-    #     except SystemExit:
-    #         os._exit(0)
+    try:
+        program(args)
+    except KeyboardInterrupt:
+        logger.info('Stop by keyboard interrupt.')
+    finally:
+        try:
+            sys.exit(0)
+        except SystemExit:
+            os._exit(0)
