@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import FrozenSet, List, Optional
 import lief
+import subprocess
 
 from .libc import CheckLibC
 from .exceptions import ParsingFailed
@@ -51,7 +52,7 @@ def getLibC():
 
 
 class RelroType(Enum):
-    No = 1
+    No = 1,
     Partial = 2
     Full = 3
 
@@ -64,6 +65,7 @@ class PIEType(Enum):
 
 class BinarySecurity(ABC):
     def __init__(self, bin_path: Path):
+        self.path = bin_path
         self.bin = lief.parse(str(bin_path))
         if not self.bin:
             raise ParsingFailed(bin_path)
@@ -93,26 +95,25 @@ class ELFSecurity(BinarySecurity):
     def set_dyn_syms(self) -> FrozenSet[str]:
         return frozenset(f.name for f in self.bin.dynamic_symbols)
 
+    # tuan2.le: fix bug Partial Relro
     @property
     def relro(self) -> RelroType:
-        # tuan2.ledd: fix bug Partial Relro
         try:
             self.bin.get(lief.ELF.SEGMENT_TYPES.GNU_RELRO)
-
         except lief.not_found:
             return RelroType.No
 
+        # print(self.bin.get(lief.ELF.DYNAMIC_TAGS.FLAGS))
         try:
-            if lief.ELF.DYNAMIC_FLAGS.BIND_NOW in self.bin.get(lief.ELF.DYNAMIC_TAGS.FLAGS):
-                return RelroType.Full
-            else:
-                return RelroType.Partial
-
+            self.bin.has(lief.ELF.DYNAMIC_TAGS.FLAGS.BIND_NOW)
+            return RelroType.Full
         except lief.not_found:
             return RelroType.Partial
 
+    # Tuan2.le:
     @property
     def has_canary(self) -> bool:
+        # Using lief
         canary_sections = ["__stack_chk_fail", "__intel_security_cookie"]
         for section in canary_sections:
             try:
@@ -120,15 +121,33 @@ class ELFSecurity(BinarySecurity):
                     return True
             except lief.not_found:
                 pass
+
+        # Using strings
+        command = F"strings {self.path} | grep -E '__stack_chk_fail|__intel_security_cookie'"
+        output, error = subprocess.Popen(
+            command, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        if output:
+            return True
+
+        # Using xxd to check hex
+        canary_hex = ["64488b042528000000", "65a114000000"]
+        command = F"xxd -p {self.path}"
+        output, error = subprocess.Popen(
+            command, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        output = output.decode('utf-8').strip()
+        for hexx in canary_hex:
+            if hexx in output:
+                return True
         return False
 
+    # tuan2.leFix check PIE
     @property
     def pie(self) -> PIEType:
-        if self.bin.is_pie:
-            if self.bin.has(lief.ELF.DYNAMIC_TAGS.DEBUG):
-                return PIEType.PIE
-            else:
-                return PIEType.DSO
+        if self.bin.header.file_type == lief.ELF.E_TYPE.DYNAMIC:
+            if self.bin.is_pie:
+                if self.bin.has(lief.ELF.DYNAMIC_TAGS.DEBUG):
+                    return PIEType.PIE
+            return PIEType.DSO
         return PIEType.No
 
     @property

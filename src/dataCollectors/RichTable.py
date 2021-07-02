@@ -1,10 +1,12 @@
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn
 from rich.table import Table, box
-from typing import Any, Callable
+from typing import Any, Callable, Dict, List
 from pathlib import Path
 from .IDataCollector import IDataCollector
 from src.elf import ELFChecksecData, PIEType, RelroType
+import csv
+import json
 import logging
 
 
@@ -23,6 +25,9 @@ class RichTable(IDataCollector):
         #initialize Table and Progress bar
         self.initTable()
         self.initBarProgress()
+
+        # For dumping data to csv,json,..
+        self.data_rows: List[Dict] = []
 
     def __enter__(self):
         self.logger.debug('Enter RichTable object.')
@@ -121,49 +126,67 @@ class RichTable(IDataCollector):
         self.logger.debug(
             F"Result for {filepath}: \n{message}"
         )
+
+        row = {
+            'FILE': str(filepath)
+        }
         if isinstance(checksec, ELFChecksecData):
             row_res: List[str] = []
             # NX
             if not checksec.nx:
                 nx_res = "[red]No"
+                row['NX'] = "NX disabled"
             else:
                 nx_res = "[green]Yes"
+                row['NX'] = "NX enabled"
             row_res.append(nx_res)
             # PIE
             pie = checksec.pie
             if pie == PIEType.No:
                 pie_res = f"[red]{pie.name}"
+                row['PIE'] = "No PIE"
             elif pie == PIEType.DSO:
                 pie_res = f"[yellow]{pie.name}"
+                row['PIE'] = "DSO"
             else:
                 pie_res = "[green]Yes"
+                row['PIE'] = "PIE enabled"
             row_res.append(pie_res)
             # CANARY
             if not checksec.canary:
                 canary_res = "[red]No"
+                row['STACK CANARY'] = "No canary found"
             else:
                 canary_res = "[green]Yes"
+                row['STACK CANARY'] = "Canary found"
             row_res.append(canary_res)
             # RELRO
             relro = checksec.relro
             if relro == RelroType.No:
                 relro_res = f"[red]{relro.name}"
+                row['RELRO'] = "No RELRO"
             elif relro == RelroType.Partial:
                 relro_res = f"[yellow]{relro.name}"
+                row['RELRO'] = "Partial RELRO"
             else:
                 relro_res = f"[green]{relro.name}"
+                row['RELRO'] = "Full RELRO"
             row_res.append(relro_res)
             # RPATH
             if checksec.rpath:
                 rpath_res = "[red]Yes"
+                row['RPATH'] = "RPATH"
             else:
                 rpath_res = "[green]No"
+                row['RPATH'] = "No RPATH"
             row_res.append(rpath_res)
             # RUNPATH
             if checksec.runpath:
                 runpath_res = "[red]Yes"
+                row['RUNPATH'] = "RUNPATH"
             else:
                 runpath_res = "[green]No"
+                row['RUNPATH'] = "No RUNPATH"
             row_res.append(runpath_res)
             # SYMBOLS
             if checksec.symbols:
@@ -177,8 +200,10 @@ class RichTable(IDataCollector):
                 fortified_count = checksec.fortified
                 if checksec.fortify_source:
                     fortify_source_res = "[green]Yes"
+                    row['FORTIFY-SOURCE'] = "Enabled"
                 else:
                     fortify_source_res = "[red]No"
+                    row['FORTIFY-SOURCE'] = "Disabled"
                 row_res.append(fortify_source_res)
 
                 if fortified_count == 0:
@@ -201,7 +226,10 @@ class RichTable(IDataCollector):
                 else:
                     fortified_score_res = f"[yellow]{checksec.fortify_score}"
                 row_res.append(fortified_score_res)
+            else:
+                row['FORTIFY-SOURCE'] = ""
 
+            self.data_rows.append(row)
             self.table.add_row(str(self.table.row_count+1),
                                str(filepath), *row_res)
         else:
@@ -212,3 +240,12 @@ class RichTable(IDataCollector):
 
     def enumerateTask(self, total: int, func: Callable[..., int], *args) -> None:
         return super().enumerateTask(total=total, func=func, *args)
+
+    def exportCSV(self, fileName: str):
+        fileName = F'{fileName}.csv'
+        fieldnames = ['RELRO', 'STACK CANARY', 'NX', 'PIE',
+                      'RPATH', 'RUNPATH', 'FORTIFY-SOURCE', 'FILE']
+        with open(fileName, newline='', mode='w') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.data_rows)

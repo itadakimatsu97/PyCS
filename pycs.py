@@ -6,10 +6,9 @@ Usage: checksec_DCV.py [options] [console] <file/directory>...
 Options:
     -r --recursive                      Enable recursive scaning, default is not-recursive
     -w WORKERS --workers=WORKERS        Number of worker for multithreading, default = 2*numOfProcessor
-    -o FILE --output=FILE               Output file path
+    -o FILE --output=FILE               Output file path, default =.csv(support type csv, json. sample -o out.csv / -o out.json)
     -h --help                           Help
 
-# Program always export full log into ./log.tmp
 Console:
     -c --console                        Enable printing log on console terminal, default level =INFO
     -d --debug                          Set console log level =DEBUG
@@ -17,6 +16,7 @@ Console:
 
 
 # http://docopt.org/
+from logging import info
 from docopt import docopt
 import sys
 import os
@@ -68,7 +68,6 @@ def program(args: dict) -> None:
     else:
         logger.debug("Could not locate libc. Skipping fortify tests for ELF.")
 
-    # Thread pool
     output_cls = RichTable
     with output_cls(is_libc_exists=libc_detected) as check_output:
         try:
@@ -108,13 +107,22 @@ def program(args: dict) -> None:
                 except KeyboardInterrupt:
                     logger.info('Checking is stopped by keyboard interrupt.')
                     check_output.__exit__(None, None, None)
-                    logging.info("Shutdown Process Pool ...")
+                    logger.info("Shutdown Process Pool ...")
                     pool.shutdown(wait=True)
 
         except KeyboardInterrupt:
             pass
         else:
             check_output.finishJob()
+            if args['--output']:
+                if args['--output'].endswith('.json'):
+                    logger.info("Json is not supported yet.")
+                elif args['--output'].endswith('.csv'):
+                    check_output.exportCSV(fileName=args['--output'][:-3])
+                    logger.info(F"{args['--output'][:-3]}.csv is exported.")
+                else:
+                    check_output.exportCSV(fileName=args['--output'])
+                    logger.info(F"{args['--output']}.csv is exported.")
 
     duration = timeit.default_timer() - start
     richConsole.rule(
